@@ -101,6 +101,6 @@ workflows:
 
           echo "Generated IPA:"
           ls -lh ../BookLoop.ipa
-          unzip -l ../BookLoop.ipa | head -50
+          zipinfo -1 ../BookLoop.ipa | sed -n '1,50p'
     artifacts:
       - BookLoop.ipa
