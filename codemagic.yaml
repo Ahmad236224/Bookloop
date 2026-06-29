@@ -1,57 +1,25 @@
 workflows:
-  unsigned-ios-ipa:
+  ios-unsigned-build:
     name: Build Unsigned iOS IPA
-    max_build_duration: 60
     environment:
-      node: 18.x
+      node: 20  # Yahan 18.x ki jagah 20 kar diya hai
       xcode: latest
     scripts:
-      - name: Install Dependencies
-        script: |
-          npm install
+      - name: Install npm dependencies
+        script: npm install
       - name: Generate Native iOS Code
+        script: npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
         script: |
-          npx expo prebuild --platform ios --clean
+          cd ios
+          pod install
       - name: Build Unsigned App
         script: |
           cd ios
-
-          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" -print -quit)
-          if [ -z "$WORKSPACE" ]; then
-            echo "No .xcworkspace found in ios directory."
-            exit 1
-          fi
-
-          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | awk '/Schemes:/ { found=1; next } found && NF { gsub(/^[ \t]+|[ \t]+$/, "", $0); print; exit }')
-          if [ -z "$SCHEME" ]; then
-            echo "No Xcode scheme found in workspace $WORKSPACE."
-            exit 1
-          fi
-
-          xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -sdk iphoneos \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            -derivedDataPath build
-      - name: Package into IPA
-        script: |
-          cd ios
-
-          rm -rf Payload
-          rm -f ../BookLoop.ipa
+          xcodebuild build -workspace Bookloop.xcworkspace -scheme Bookloop -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build
+          
           mkdir -p Payload
-
-          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" -print -quit)
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app file found in build/Build/Products/Release-iphoneos."
-            exit 1
-          fi
-
-          cp -R "$APP_PATH" Payload/
-          zip -r ../BookLoop.ipa Payload
+          cp -r build/Build/Products/Release-iphoneos/Bookloop.app Payload/
+          zip -r Bookloop.ipa Payload
     artifacts:
-      - BookLoop.ipa
+      - ios/Bookloop.ipa
