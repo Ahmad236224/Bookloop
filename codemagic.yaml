@@ -1,25 +1,106 @@
 workflows:
   ios-unsigned-build:
     name: Build Unsigned iOS IPA
+    max_build_duration: 60
     environment:
-      node: 20  # Yahan 18.x ki jagah 20 kar diya hai
+      node: 20
       xcode: latest
     scripts:
       - name: Install npm dependencies
-        script: npm install
+        script: |
+          npm install
+
       - name: Generate Native iOS Code
-        script: npx expo prebuild --platform ios --clean
+        script: |
+          npx expo prebuild --platform ios --clean
+
       - name: Install CocoaPods
         script: |
+          set -euo pipefail
           cd ios
-          pod install
+          pod install --repo-update
+          echo "CocoaPods install completed."
+
       - name: Build Unsigned App
         script: |
+          set -euo pipefail
           cd ios
-          xcodebuild build -workspace Bookloop.xcworkspace -scheme Bookloop -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -derivedDataPath build
-          
+
+          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" -print -quit)
+          if [ -z "$WORKSPACE" ]; then
+            echo "ERROR: No .xcworkspace found in ios directory."
+            ls -la
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | awk '/Schemes:/ { found=1; next } found && NF { gsub(/^[ \t]+|[ \t]+$/, "", $0); print; exit }')
+          if [ -z "$SCHEME" ]; then
+            echo "ERROR: No Xcode scheme found in workspace $WORKSPACE."
+            xcodebuild -list -workspace "$WORKSPACE"
+            exit 1
+          fi
+
+          echo "Using workspace: $WORKSPACE"
+          echo "Using scheme: $SCHEME"
+
+          xcodebuild build \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build
+
+      - name: Debug Xcode build output
+        script: |
+          set -euo pipefail
+          cd ios
+
+          echo "Listing ios/build:"
+          find build -maxdepth 6 -print || true
+
+          echo "Listing Release-iphoneos products:"
+          ls -la build/Build/Products/Release-iphoneos || true
+
+          echo "Detected .app bundles:"
+          find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" -type d -print || true
+
+      - name: Package into IPA
+        script: |
+          set -euo pipefail
+          cd ios
+
+          PRODUCTS_DIR="build/Build/Products/Release-iphoneos"
+          if [ ! -d "$PRODUCTS_DIR" ]; then
+            echo "ERROR: Expected products directory does not exist: $PRODUCTS_DIR"
+            echo "Current build directory contents:"
+            find build -maxdepth 6 -print || true
+            exit 1
+          fi
+
+          APP_PATH=$(find "$PRODUCTS_DIR" -maxdepth 1 -name "*.app" -type d -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app bundle found in $PRODUCTS_DIR."
+            echo "Release-iphoneos contents:"
+            ls -la "$PRODUCTS_DIR"
+            echo "All .app bundles under ios/build:"
+            find build -name "*.app" -type d -print || true
+            exit 1
+          fi
+
+          echo "Packaging app bundle: $APP_PATH"
+
+          rm -rf Payload
+          rm -f ../BookLoop.ipa
           mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/Bookloop.app Payload/
-          zip -r Bookloop.ipa Payload
+          cp -R "$APP_PATH" Payload/
+
+          ditto -c -k --keepParent Payload ../BookLoop.ipa
+
+          echo "Generated IPA:"
+          ls -lh ../BookLoop.ipa
+          unzip -l ../BookLoop.ipa | head -50
     artifacts:
-      - ios/Bookloop.ipa
+      - BookLoop.ipa
